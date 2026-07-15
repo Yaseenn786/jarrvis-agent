@@ -1,0 +1,8 @@
+watch:
+  - path: agent/test.log
+
+patterns:
+  - "\\bERROR\\b"
+  - "\\bFATAL\\b"
+  - "Exception"
+  - "Traceback"
