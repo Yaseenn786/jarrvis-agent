@@ -1,0 +1,39 @@
+name: Deploy Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint install.sh
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          shellcheck -s sh install.sh
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Upload
+        run: |
+          aws s3 cp install.sh s3://jarrviss-installer/install.sh \
+            --content-type "text/plain"
+
+      - name: Invalidate cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.INSTALLER_DISTRIBUTION_ID }} \
+            --paths "/install.sh"
