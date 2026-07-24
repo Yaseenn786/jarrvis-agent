@@ -123,12 +123,11 @@ systemctl daemon-reload
 systemctl enable jarrvis >/dev/null 2>&1
 systemctl restart jarrvis
 
-systemctl daemon-reload
-systemctl enable jarrvis >/dev/null 2>&1
-systemctl restart jarrvis
-
+# ---- cli wrapper -----------------------------------------------------------
 cat > /usr/local/bin/jarrvis <<EOF
 #!/bin/sh
+[ "\$(id -u)" = "0" ] || exec sudo "\$0" "\$@"
+
 export JARRVIS_CONFIG="$CONFIG_DIR/jarrvis.yml"
 export JARRVIS_KEY_PATH="$CONFIG_DIR/.jarrvis_key"
 export JARRVIS_HUB_URL="$HUB_URL"
@@ -143,8 +142,6 @@ case "\$1" in
 esac
 EOF
 chmod +x /usr/local/bin/jarrvis
-
-# ---- wait for first beat ---------------------------------------------------
 
 # ---- wait for first beat ---------------------------------------------------
 say "waiting for first check-in..."
