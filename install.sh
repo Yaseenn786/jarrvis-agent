@@ -23,13 +23,24 @@ echo ""
 say "checking dependencies..."
 
 if command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-pip tar >/dev/null 2>&1 || true
+    dnf install -y python3.11 python3.11-pip tar >/dev/null 2>&1 \
+        || dnf install -y python3 python3-pip tar >/dev/null 2>&1 || true
 elif command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq >/dev/null 2>&1 || true
     apt-get install -y python3 python3-venv python3-pip tar >/dev/null 2>&1 || true
 fi
 
-command -v python3 >/dev/null 2>&1 || fail "python3 not found and could not be installed"
+PY=""
+for c in python3.13 python3.12 python3.11 python3.10 python3; do
+    command -v "$c" >/dev/null 2>&1 || continue
+    if "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+        PY="$c"
+        break
+    fi
+done
+
+[ -n "$PY" ] || fail "python 3.10+ required, none found"
+say "using $($PY --version 2>&1)"
 
 # ---- fetch agent -----------------------------------------------------------
 say "downloading agent..."
@@ -50,7 +61,7 @@ cp -r "$SRC"/. "$INSTALL_DIR"/
 # ---- python env ------------------------------------------------------------
 say "installing python packages..."
 
-python3 -m venv "$INSTALL_DIR/venv" 2>/dev/null || fail "could not create venv (install python3-venv)"
+"$PY" -m venv "$INSTALL_DIR/venv" 2>/dev/null || fail "could not create venv"
 "$INSTALL_DIR/venv/bin/pip" install -q --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt" || fail "pip install failed"
 
@@ -112,6 +123,29 @@ systemctl daemon-reload
 systemctl enable jarrvis >/dev/null 2>&1
 systemctl restart jarrvis
 
+systemctl daemon-reload
+systemctl enable jarrvis >/dev/null 2>&1
+systemctl restart jarrvis
+
+cat > /usr/local/bin/jarrvis <<EOF
+#!/bin/sh
+export JARRVIS_CONFIG="$CONFIG_DIR/jarrvis.yml"
+export JARRVIS_KEY_PATH="$CONFIG_DIR/.jarrvis_key"
+export JARRVIS_HUB_URL="$HUB_URL"
+cd "$INSTALL_DIR/agent" || exit 1
+
+case "\$1" in
+  pair)    exec "$INSTALL_DIR/venv/bin/python3" pair.py "\$2" ;;
+  status)  exec systemctl status jarrvis ;;
+  logs)    exec journalctl -u jarrvis -f ;;
+  restart) exec systemctl restart jarrvis ;;
+  *) echo "usage: jarrvis {pair <code>|status|logs|restart}"; exit 1 ;;
+esac
+EOF
+chmod +x /usr/local/bin/jarrvis
+
+# ---- wait for first beat ---------------------------------------------------
+
 # ---- wait for first beat ---------------------------------------------------
 say "waiting for first check-in..."
 
@@ -139,6 +173,6 @@ echo ""
 echo "  done — $SERVER_NAME is connected"
 echo "  your dashboard should have opened already"
 echo ""
-echo "  logs:    journalctl -u jarrvis -f"
-echo "  restart: systemctl restart jarrvis"
+echo "  logs:    jarrvis logs"
+echo "  restart: jarrvis restart"
 echo ""
