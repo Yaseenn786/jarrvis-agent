@@ -6,3 +6,13 @@ patterns:
   - "\\bFATAL\\b"
   - "Exception"
   - "Traceback"
+
+hub:
+  url: http://localhost:8081
+  server_name: yaseen-macbook
+
+log_copy:
+  enabled: true
+  dir: ./jarrvis-logs
+  max_storage_mb: 100
+  retention_days: 1

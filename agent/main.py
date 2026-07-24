@@ -1,13 +1,16 @@
-import time
+import queue
 
-from tailer import tail
 from detector import compile_patterns, is_trouble
 from config import load_config
 from collector import EventCollector
+from shipper import Shipper
+from heartbeat import Heartbeat
+from logcopy import LogCopy
+from watchers import WatcherManager
 
 
 def handle_event(event):
-    """For now: print. Later: ship to hub."""
+    """Print locally, then ship to hub."""
     print("\n" + "=" * 60)
     print("🚨 JARRVIS EVENT")
     print(f"Trigger : {event['triggered_by']}")
@@ -23,19 +26,46 @@ def handle_event(event):
 
 if __name__ == "__main__":
     cfg = load_config()
+    shipper = Shipper(cfg["hub"]["url"], cfg["hub"]["server_name"], cfg["hub"]["api_key"])
     compiled = compile_patterns(cfg["patterns"])
-    logfile = cfg["watch"][0]["path"]
-    collector = EventCollector()
 
-    print(f"Jarrvis watching {logfile} ...")
+    logcopy = None
+    if cfg.get("log_copy", {}).get("enabled"):
+        lc = cfg["log_copy"]
+        logcopy = LogCopy(lc["dir"], lc["max_storage_mb"], lc["retention_days"])
 
-    for line in tail(f"../{logfile}"):
-        if line is None:
-            event = collector.feed_idle()
-            if event:
-                handle_event(event)
+    lines = queue.Queue()
+    manager = WatcherManager(lines)
+
+    seed = [{"type": "file", "name": w["path"], "logPath": f"../{w['path']}"}
+            for w in cfg.get("watch", [])]
+    active = manager.apply(seed)
+
+    Heartbeat(cfg["hub"]["url"], cfg["hub"]["server_name"],
+              api_key=cfg["hub"]["api_key"],
+              interval=30,
+              log_reader=(logcopy.read_recent if logcopy else None),
+              on_set_watches=manager.apply).start()
+
+    collectors = {}
+    print(f"Jarrvis watching {', '.join(active) if active else 'nothing yet'} ...")
+
+    while True:
+        try:
+            key, line = lines.get(timeout=0.5)
+        except queue.Empty:
+            for c in list(collectors.values()):
+                event = c.feed_idle()
+                if event:
+                    handle_event(event)
+                    shipper.ship(event)
             continue
 
+        if logcopy:
+            logcopy.write(line)
+
+        collector = collectors.setdefault(key, EventCollector())
         event = collector.feed(line, is_trouble(line, compiled))
         if event:
             handle_event(event)
+            shipper.ship(event)
