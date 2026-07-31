@@ -7,7 +7,7 @@ from shipper import Shipper
 from heartbeat import Heartbeat
 from logcopy import LogCopy
 from watchers import WatcherManager
-
+from poller import CommandPoller
 
 def handle_event(event):
     """Print locally, then ship to hub."""
@@ -41,11 +41,16 @@ if __name__ == "__main__":
             for w in cfg.get("watch", [])]
     active = manager.apply(seed)
 
-    Heartbeat(cfg["hub"]["url"], cfg["hub"]["server_name"],
-              api_key=cfg["hub"]["api_key"],
-              interval=30,
-              log_reader=(logcopy.read_recent if logcopy else None),
-              on_set_watches=manager.apply).start()
+    hb = Heartbeat(cfg["hub"]["url"], cfg["hub"]["server_name"],
+                   api_key=cfg["hub"]["api_key"],
+                   interval=30,
+                   log_reader=(logcopy.read_recent if logcopy else None))
+    hb.start()
+
+    poller = CommandPoller(cfg["hub"]["url"], cfg["hub"]["api_key"],
+                           log_reader=(logcopy.read_recent if logcopy else None),
+                           on_set_watches=manager.apply)
+    poller.start()
 
     collectors = {}
     print(f"Jarrvis watching {', '.join(active) if active else 'nothing yet'} ...")

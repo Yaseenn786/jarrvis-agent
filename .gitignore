@@ -7,4 +7,6 @@ agent/test.log
 EOF
 git add .gitignore && git commit -m "gitignore"
 echo "agent/jarrvis-logs/" >> .gitignore
-agent/.jarrvis_key
+agent/.jarrvis_key.DS_Store
+agent/jarrvis-logs/
+venv/
