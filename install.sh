@@ -135,10 +135,24 @@ cd "$INSTALL_DIR/agent" || exit 1
 
 case "\$1" in
   pair)    exec "$INSTALL_DIR/venv/bin/python3" pair.py "\$2" ;;
+  update)
+    echo "  fetching latest agent..."
+    TMP="\$(mktemp -d)"
+    trap 'rm -rf "\$TMP"' EXIT
+    curl -sSL "$REPO" -o "\$TMP/agent.tar.gz" || { echo "  download failed"; exit 1; }
+    tar -xzf "\$TMP/agent.tar.gz" -C "\$TMP" || { echo "  extract failed"; exit 1; }
+    SRC="\$(find "\$TMP" -maxdepth 1 -type d -name 'jarrvis-agent-*' | head -1)"
+    [ -n "\$SRC" ] || { echo "  bad archive"; exit 1; }
+    find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name venv -exec rm -rf {} +
+    cp -r "\$SRC"/. "$INSTALL_DIR"/
+    "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt" || { echo "  pip failed"; exit 1; }
+    systemctl restart jarrvis
+    echo "  updated — running latest"
+    ;;
   status)  exec systemctl status jarrvis ;;
   logs)    exec journalctl -u jarrvis -f ;;
   restart) exec systemctl restart jarrvis ;;
-  *) echo "usage: jarrvis {pair <code>|status|logs|restart}"; exit 1 ;;
+  *) echo "usage: jarrvis {pair <code>|update|status|logs|restart}"; exit 1 ;;
 esac
 EOF
 chmod +x /usr/local/bin/jarrvis
@@ -172,4 +186,5 @@ echo "  your dashboard should have opened already"
 echo ""
 echo "  logs:    jarrvis logs"
 echo "  restart: jarrvis restart"
+echo "  update:  jarrvis update"
 echo ""
