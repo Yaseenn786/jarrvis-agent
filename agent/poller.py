@@ -1,7 +1,7 @@
 import json
 import threading
 import time
-
+import subprocess
 import requests
 
 
@@ -50,6 +50,8 @@ class CommandPoller:
                 return
             active = self.on_set_watches(params.get("targets", []))
             self._report(cmd["id"], f"watching: {', '.join(active) if active else 'nothing'}")
+        elif cmd["type"] == "DOCKER_STATS":
+            self._report(cmd["id"], self._docker_stats())     
 
     def _report(self, cmd_id, result):
         try:
@@ -60,6 +62,36 @@ class CommandPoller:
             )
         except requests.RequestException:
             pass
+
+    def _docker_stats(self):
+        try:
+            ps = subprocess.run(
+                ["docker", "ps", "-a", "--format",
+                 "table {{.Names}}\t{{.Status}}\t{{.State}}\t{{.Image}}"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if ps.returncode != 0:
+                return f"docker ps failed: {ps.stderr.strip() or 'is docker running?'}"
+
+            stats = subprocess.run(
+                ["docker", "stats", "--no-stream", "--format",
+                 "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}"],
+                capture_output=True, text=True, timeout=15,
+            )
+            live = stats.stdout.strip() if stats.returncode == 0 else "(stats unavailable)"
+
+            return (
+                "=== all containers (running + stopped) ===\n"
+                f"{ps.stdout.strip() or 'no containers'}\n\n"
+                "=== live stats (running only) ===\n"
+                f"{live or 'no running containers'}"
+            )
+        except FileNotFoundError:
+            return "docker not installed on this server"
+        except subprocess.TimeoutExpired:
+            return "docker stats timed out"
+        except Exception as e:
+            return f"docker stats error: {e}"
 
     def start(self):
         t = threading.Thread(target=self._loop, daemon=True)
