@@ -5,6 +5,7 @@ import psutil
 import requests
 
 import discover
+import frontdoor
 
 
 class Heartbeat:
@@ -30,6 +31,7 @@ class Heartbeat:
         }
         if self.beat_count % self.discover_every == 0:
             payload["discovered"] = discover.discover()
+            payload["frontDoor"] = frontdoor.refresh_frontdoor()   # detect + cache + ship
         self.beat_count += 1
         return payload
 
@@ -44,3 +46,5 @@ class Heartbeat:
     def start(self):
         t = threading.Thread(target=self._loop, daemon=True)
         t.start()
+
+    
