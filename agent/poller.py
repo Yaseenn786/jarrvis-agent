@@ -3,7 +3,10 @@ import threading
 import time
 import subprocess
 import requests
+import os
+import re
 
+import frontdoor
 
 class CommandPoller:
     """
@@ -52,6 +55,12 @@ class CommandPoller:
             self._report(cmd["id"], f"watching: {', '.join(active) if active else 'nothing'}")
         elif cmd["type"] == "DOCKER_STATS":
             self._report(cmd["id"], self._docker_stats())     
+        elif cmd["type"] == "FETCH_ACCESS_LOG":
+            try:
+                params = json.loads(cmd.get("paramsJson") or "{}")
+            except ValueError:
+                params = {}
+            self._report(cmd["id"], self._fetch_access_log(params))    
 
     def _report(self, cmd_id, result):
         try:
@@ -92,6 +101,58 @@ class CommandPoller:
             return "docker stats timed out"
         except Exception as e:
             return f"docker stats error: {e}"
+        
+        
+    def _fetch_access_log(self, params):
+        fd = frontdoor.get_frontdoor()          # cached — no detection at request time
+        path = fd.get("accessLog")
+        if not path:
+            return f"No access log on this server ({fd.get('detail', 'unknown front door')})."
+        if not os.path.exists(path):
+            return f"Access log path {path} not found on this server."
+
+        ip = (params.get("ip") or "").strip()
+        contains = (params.get("contains") or "").strip()
+        status = (params.get("status") or "").strip()      # "404" or a class "4xx"/"5xx"
+        try:
+            max_lines = int(params.get("max_lines") or 300)
+        except (ValueError, TypeError):
+            max_lines = 300
+        max_lines = max(1, min(max_lines, 1000))            # hard cap
+
+        matches = []
+        try:
+            with open(path, "r", errors="replace") as f:
+                for line in f:                               # stream — never load whole file
+                    if ip and ip not in line:
+                        continue
+                    if contains and contains not in line:
+                        continue
+                    if status and not self._status_matches(line, status):
+                        continue
+                    matches.append(line.rstrip("\n"))
+        except OSError as e:
+            return f"Could not read access log: {e}"
+
+        if not matches:
+            return "No matching access-log lines found for that query."
+
+        trimmed = matches[-max_lines:]
+        header = f"{len(matches)} matching line(s)"
+        if len(trimmed) < len(matches):
+            header += f" (showing last {len(trimmed)})"
+        return header + ":\n" + "\n".join(trimmed)
+
+    @staticmethod
+    def _status_matches(line, status):
+        m = re.search(r'"\s(\d{3})\s', line)                # the code right after the "GET ..." request
+        if not m:
+            return False
+        code = m.group(1)
+        s = status.lower()
+        if s in ("2xx", "3xx", "4xx", "5xx"):
+            return code[0] == s[0]
+        return code == status    
 
     def start(self):
         t = threading.Thread(target=self._loop, daemon=True)
