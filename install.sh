@@ -137,6 +137,7 @@ case "\$1" in
   pair)    exec "$INSTALL_DIR/venv/bin/python3" pair.py "\$2" ;;
   update)
     echo "  fetching latest agent..."
+    cd /tmp || exit 1
     TMP="\$(mktemp -d)"
     trap 'rm -rf "\$TMP"' EXIT
     curl -sSL "$REPO" -o "\$TMP/agent.tar.gz" || { echo "  download failed"; exit 1; }
@@ -145,6 +146,7 @@ case "\$1" in
     [ -n "\$SRC" ] || { echo "  bad archive"; exit 1; }
     find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name venv -exec rm -rf {} +
     cp -r "\$SRC"/. "$INSTALL_DIR"/
+    cd "$INSTALL_DIR" || exit 1
     "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt" || { echo "  pip failed"; exit 1; }
     systemctl restart jarrvis
     echo "  updated — running latest"
