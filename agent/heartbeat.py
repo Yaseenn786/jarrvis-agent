@@ -10,7 +10,7 @@ import frontdoor
 
 class Heartbeat:
     def __init__(self, hub_url, server_name, api_key=None, interval=30,
-                 log_reader=None, discover_every=20):
+                 log_reader=None, discover_every=20, watch_health=None):
         self.hub_url = hub_url
         self.endpoint = f"{hub_url}/api/heartbeat"
         self.server_name = server_name
@@ -18,6 +18,7 @@ class Heartbeat:
         self.interval = interval
         self.log_reader = log_reader
         self.discover_every = discover_every
+        self.watch_health = watch_health   # callable → watchdog.snapshot()
         self.beat_count = 0
 
     def _collect(self):
@@ -29,9 +30,24 @@ class Heartbeat:
             "diskPercent": psutil.disk_usage("/").percent,
             "recentLogs": self.log_reader(50) if self.log_reader else "",
         }
+
+        # ship live watcher health every beat — what's watched + is it healthy
+        if self.watch_health:
+            try:
+                health = self.watch_health()   # {key: {"healthy": bool, "reason": str}}
+                payload["watching"] = [
+                    {"source": key, "healthy": h["healthy"], "reason": h["reason"]}
+                    for key, h in health.items()
+                ]
+                payload["watchCount"] = len(health)
+            except Exception:
+                payload["watching"] = []
+                payload["watchCount"] = 0
+
         if self.beat_count % self.discover_every == 0:
             payload["discovered"] = discover.discover()
-            payload["frontDoor"] = frontdoor.refresh_frontdoor()   # detect + cache + ship
+            payload["frontDoor"] = frontdoor.refresh_frontdoor()
+
         self.beat_count += 1
         return payload
 
@@ -46,5 +62,3 @@ class Heartbeat:
     def start(self):
         t = threading.Thread(target=self._loop, daemon=True)
         t.start()
-
-    

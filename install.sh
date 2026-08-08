@@ -151,10 +151,23 @@ case "\$1" in
     systemctl restart jarrvis
     echo "  updated — running latest"
     ;;
+  activity)
+    if [ -f /var/lib/jarrvis/activity.jsonl ]; then
+      tail -n "\${2:-50}" /var/lib/jarrvis/activity.jsonl | "$INSTALL_DIR/venv/bin/python3" -c 'import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line)
+        print("%-22s %-18s %s" % (e["at"], e["type"], e.get("detail", "")))
+    except Exception:
+        pass'
+    else
+      echo "  no activity recorded yet"
+    fi
+    ;;
   status)  exec systemctl status jarrvis ;;
   logs)    exec journalctl -u jarrvis -f ;;
   restart) exec systemctl restart jarrvis ;;
-  *) echo "usage: jarrvis {pair <code>|update|status|logs|restart}"; exit 1 ;;
+  *) echo "usage: jarrvis {pair <code>|update|activity [N]|status|logs|restart}"; exit 1 ;;
 esac
 EOF
 chmod +x /usr/local/bin/jarrvis
@@ -186,7 +199,8 @@ echo ""
 echo "  done — $SERVER_NAME is connected"
 echo "  your dashboard should have opened already"
 echo ""
-echo "  logs:    jarrvis logs"
-echo "  restart: jarrvis restart"
-echo "  update:  jarrvis update"
+echo "  logs:     jarrvis logs"
+echo "  activity: jarrvis activity"
+echo "  restart:  jarrvis restart"
+echo "  update:   jarrvis update"
 echo ""
