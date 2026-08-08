@@ -178,6 +178,43 @@ class WatcherManager:
         if t["type"] == "docker":
             return DockerWatcher(key, t["name"], self.out)
         path = t.get("logPath")
+        if t["type"] == "accesslog":
+            return AccessLogWatcher(key, path, self.out) if path else None
         if path:
             return FileWatcher(key, path, self.out)
         return None
+    
+from accesslog_detect import AccessLogDetector
+
+
+class AccessLogWatcher(Watcher):
+    """Tails an nginx/apache access log and emits SECURITY/HEALTH signals — not raw
+    lines. Its 'trouble' is structural (probe paths, denied statuses, 4xx/5xx spikes),
+    so it uses AccessLogDetector, NOT the ERROR/FATAL patterns. Unkillable like every
+    watcher (inherits _safe_run)."""
+
+    def __init__(self, key, path, out_queue):
+        super().__init__(key, out_queue)
+        self.path = path
+        self.detector = AccessLogDetector()
+
+    def _run(self):
+        for line in tail(self.path):          # yields a line, or None every ~0.2s when idle
+            if self._stop.is_set():
+                return
+            self._tick()                      # prove the loop is turning (idle ticks too)
+            if line is None:
+                continue
+            signal = self.detector.feed(line)
+            if signal:
+                # ship as a synthetic "log line" the event pipeline can treat as trouble
+                self._emit(f"[JARRVIS-ACCESSLOG] {signal['kind'].upper()} — {signal['message']}")
+
+    def health(self):
+        if not self.is_alive():
+            return False, "thread dead"
+        if not os.path.exists(self.path):
+            return False, "access log missing"
+        if time.time() - self.last_tick > 60:
+            return False, "read stalled"
+        return True, "ok"    

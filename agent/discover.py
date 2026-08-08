@@ -4,6 +4,8 @@ import subprocess
 
 import psutil
 
+import frontdoor
+
 HINTS = {
     "postgres": "PostgreSQL database",
     "mysql": "MySQL database",
@@ -17,7 +19,28 @@ HINTS = {
 
 def discover():
     """Everything on this box worth watching. Never raises."""
-    return _docker() + _processes()
+    return _docker() + _processes() + _access_log()
+
+
+def _access_log():
+    """Expose the reverse-proxy access log as a watchable source (security + health signal)."""
+    try:
+        fd = frontdoor.get_frontdoor()          # cached, fast
+    except Exception:
+        return []
+
+    path = fd.get("accessLog")
+    if not path or not os.path.exists(path):
+        return []                                # no local access log (none / behind LB)
+
+    kind = fd.get("type", "reverse proxy")
+    return [{
+        "type": "accesslog",
+        "name": f"{kind} access log",
+        "identifier": path,
+        "hint": "attack & error-rate monitoring (4xx/5xx, probes)",
+        "logPath": path,
+    }]
 
 
 def _docker():
@@ -28,7 +51,6 @@ def _docker():
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
-    
 
     if out.returncode != 0:
         return []
@@ -148,6 +170,7 @@ def _image_hint(image):
         if fragment in image:
             return label
     return "Application container"
+
 
 def _log_paths(pid):
     """Files this process has open that look like logs. Linux only."""

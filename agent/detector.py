@@ -6,4 +6,6 @@ def compile_patterns(patterns):
 
 
 def is_trouble(line, compiled):
+    if line.startswith("[JARRVIS-ACCESSLOG]"):   # access-log watcher already decided it's trouble
+        return True
     return any(p.search(line) for p in compiled)
